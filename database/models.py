@@ -6,7 +6,10 @@ class Playlist:
     playlist_id: str
     name: str
     last_updated: datetime
+    last_synced: datetime      # When we last synced this playlist
+    spotify_modified_at: str   # When Spotify last modified it
     total_tracks: int
+    previous_tracks: int       # Track count from last sync
     is_private: bool
     owner_id: str
     owner_name: str
