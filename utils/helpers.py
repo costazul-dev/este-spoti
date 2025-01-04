@@ -2,12 +2,16 @@ from typing import Dict, Any
 from datetime import datetime
 from database.models import Playlist, Song, PlaylistSong
 
-def create_playlist_from_spotify_data(playlist_data: Dict[str, Any]) -> Playlist:
+def create_playlist_from_spotify_data(playlist_data: Dict[str, Any], spotify_modified: str) -> Playlist:
+    current_time = datetime.now()
     return Playlist(
         playlist_id=playlist_data['id'],
         name=playlist_data['name'],
-        last_updated=datetime.now(),
+        last_updated=current_time,
+        last_synced=current_time,  # New field
+        spotify_modified_at=spotify_modified,  # New field
         total_tracks=playlist_data['tracks']['total'],
+        previous_tracks=playlist_data['tracks']['total'],  # New field
         is_private=not playlist_data.get('public', True),
         owner_id=playlist_data['owner']['id'],
         owner_name=playlist_data['owner']['display_name']
