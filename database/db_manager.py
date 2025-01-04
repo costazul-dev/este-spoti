@@ -1,6 +1,6 @@
 import sqlite3
 from datetime import datetime
-from typing import List, Tuple
+from typing import Tuple, Optional
 from .models import Playlist, Song, PlaylistSong
 
 class DatabaseManager:
@@ -15,7 +15,10 @@ class DatabaseManager:
                 playlist_id TEXT PRIMARY KEY,
                 name TEXT,
                 last_updated TIMESTAMP,
+                last_synced TIMESTAMP,
+                spotify_modified_at TIMESTAMP,
                 total_tracks INTEGER,
+                previous_tracks INTEGER,
                 is_private BOOLEAN,
                 owner_id TEXT,
                 owner_name TEXT
@@ -40,16 +43,50 @@ class DatabaseManager:
         ''')
         self.conn.commit()
     
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        """Get a playlist by ID to check if it needs syncing"""
+        self.cursor.execute('''
+            SELECT playlist_id, name, last_updated, last_synced, 
+                spotify_modified_at, total_tracks, previous_tracks,
+                is_private, owner_id, owner_name
+            FROM playlists 
+            WHERE playlist_id = ?
+        ''', (playlist_id,))
+        row = self.cursor.fetchone()
+        
+        if row:
+            return Playlist(*row)
+        return None
+
+    def clear_playlist_tracks(self, playlist_id: str):
+        """Remove all tracks from a playlist before re-syncing"""
+        self.cursor.execute('DELETE FROM playlist_songs WHERE playlist_id = ?', (playlist_id,))
+        self.conn.commit()
+
+    def update_sync_status(self, playlist_id: str, current_tracks: int):
+        """Update the sync status after successfully processing a playlist"""
+        self.cursor.execute('''
+            UPDATE playlists 
+            SET last_synced = ?, previous_tracks = ?
+            WHERE playlist_id = ?
+        ''', (datetime.now(), current_tracks, playlist_id))
+        self.conn.commit()
+
     def add_playlist(self, playlist: Playlist):
+        '''Modified to include new fields'''
         self.cursor.execute('''
             INSERT OR REPLACE INTO playlists 
-            (playlist_id, name, last_updated, total_tracks, is_private, owner_id, owner_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (playlist_id, name, last_updated, last_synced, spotify_modified_at,
+            total_tracks, previous_tracks, is_private, owner_id, owner_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             playlist.playlist_id,
             playlist.name,
             playlist.last_updated,
+            playlist.last_synced,
+            playlist.spotify_modified_at,
             playlist.total_tracks,
+            playlist.previous_tracks,
             playlist.is_private,
             playlist.owner_id,
             playlist.owner_name
