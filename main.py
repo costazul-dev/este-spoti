@@ -24,6 +24,17 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
 
+def _needs_sync(existing_playlist, spotify_modified, current_tracks):
+    """Determine if a playlist needs to be synced"""
+    # Convert to datetime objects for comparison
+    spotify_modified_dt = datetime.fromisoformat(spotify_modified.replace('Z', '+00:00'))
+    last_synced_dt = datetime.fromisoformat(existing_playlist.last_synced.replace('Z', '+00:00'))
+    
+    return (
+        spotify_modified_dt > last_synced_dt or  # Modified since last sync
+        current_tracks != existing_playlist.previous_tracks  # Track count changed
+    )
+
 def sync_library():
     setup_logging()
     logging.info("Starting Spotify library sync")
@@ -49,14 +60,30 @@ def sync_library():
         )
         
         total_tracks = 0
+        skipped_playlists = 0
+
         for playlist in playlists:
             try:
+                # Check if playlist needs syncing
+                spotify_modified = playlist.get('modified_at', datetime.now().isoformat())
+                current_tracks = playlist['tracks']['total']
+
+                existing_playlist = db.get_playlist(playlist['id'])
+
+                if existing_playlist and not _needs_sync(existing_playlist, spotify_modified, current_tracks):
+                    logging.info(f"Skipping unchanged playlist: {playlist['name']}")
+                    skipped_playlists += 1
+                    progress.update(1)
+                    continue
+
                 # Process playlist
-                playlist_model = create_playlist_from_spotify_data(playlist)
+                playlist_model = create_playlist_from_spotify_data(playlist, spotify_modified)
                 db.add_playlist(playlist_model)
                 
                 # Process tracks
                 tracks = spotify.get_playlist_tracks(playlist['id'])
+                db.clear_playlist_tracks(playlist['id']) # Remove old tracks
+
                 for track in tracks:
                     if not track['track'] or not track['track']['id']:
                         continue
@@ -71,6 +98,7 @@ def sync_library():
                     db.add_playlist_song(playlist_song_model)
                     total_tracks += 1
                 
+                db.update_sync_status(playlist['id'], current_tracks)
                 progress.update(1)
                 
             except Exception as e:
@@ -82,7 +110,9 @@ def sync_library():
         stats = db.get_stats()
         logging.info(f"""
 Sync completed successfully:
-- Total playlists processed: {stats[0]}
+- Total playlists found: {total_playlists}
+- Playlists skipped: {skipped_playlists}
+- Playlists synced: {stats[0]}
 - Private playlists: {stats[1]}
 - Unique songs: {stats[2]}
 - Total tracks processed: {total_tracks}
